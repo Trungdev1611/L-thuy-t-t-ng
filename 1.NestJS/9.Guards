@@ -1,0 +1,79 @@
+# Guards dùng để tùy chỉnh chặn/ hoặc cho phép việc truy cập router và phân quyền truy cập route
+ (thay vì sử dụng middleware như express).  Nestjs cũng có middleware nhưng Guards được sử dụng phân quyền chuẩn hơn
+
+
+  Guard: RolesGuard.ts
+  import {
+  CanActivate,
+  ExecutionContext,
+  Injectable,
+} from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+
+@Injectable()
+export class RolesGuard implements CanActivate {
+  constructor(private reflector: Reflector) {}
+
+  canActivate(context: ExecutionContext): boolean {
+    // 👇 Gọi handler và class hiện tại
+    const handler = context.getHandler();
+    const controller = context.getClass();
+
+    // 👇 In ra console để bạn thấy
+    console.log('Handler (method):', handler.name);
+    console.log('Controller (class):', controller.name);
+
+    // 👇 Lấy metadata 'roles' gán từ @Roles() ở method hoặc class
+    const requiredRoles = this.reflector.getAllAndOverride<string[]>('roles', [
+      handler,
+      controller,
+    ]);
+    console.log('Required Roles:', requiredRoles);
+
+    if (!requiredRoles) {
+      // Nếu route này không yêu cầu role cụ thể → cho phép truy cập
+      return true;
+    }
+
+    // 👇 Lấy user từ request (được set sẵn bởi AuthGuard hoặc middleware)
+    const request = context.switchToHttp().getRequest();
+    const user = request.user;
+
+    console.log('Current User Role:', user?.role);
+
+    // 👇 So sánh user.role với requiredRoles
+    return requiredRoles.includes(user?.role);
+  }
+}
+
+
+Decorator: roles.decorator.ts
+import { SetMetadata } from '@nestjs/common';
+
+export const ROLES_KEY = 'roles';
+
+export const Roles = (...roles: string[]) => SetMetadata(ROLES_KEY, roles);
+
+👨‍🏫 Controller Example: users.controller.ts
+import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Roles } from './roles.decorator';
+import { RolesGuard } from './roles.guard';
+
+@Controller('users')
+@UseGuards(RolesGuard)
+export class UsersController {
+  @Get()
+  @Roles('admin', 'manager')
+  findAll() {
+    return ['user1', 'user2'];
+  }
+}
+
+
+ Kết quả khi gọi GET /users
+Giả sử request.user = { role: 'admin' }, bạn sẽ thấy trong console:
+
+Handler (method): findAll
+Controller (class): UsersController
+Required Roles: [ 'admin', 'manager' ]
+Current User Role: admin
